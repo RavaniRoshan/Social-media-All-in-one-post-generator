@@ -1,8 +1,10 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Platform, PostType, GenerationRequest, GeneratedPost } from '../types';
 import { generateSocialPosts } from '../services/geminiService';
 import { Icon } from './Icon';
 import Loader from './Loader';
+
+declare const gsap: any;
 
 const platformOptions = [Platform.LinkedIn, Platform.Instagram, Platform.X];
 const postTypeOptions = [PostType.Single, PostType.Carousel];
@@ -54,8 +56,47 @@ const Generator: React.FC<GeneratorProps> = ({ initialPrompt = '' }) => {
     const [copiedStates, setCopiedStates] = useState<Record<string, boolean>>({});
     const [activeCarouselSlides, setActiveCarouselSlides] = useState<Record<string, number>>({});
 
+    const captionRef = useRef<HTMLParagraphElement>(null);
+    const mainContainerRef = useRef<HTMLDivElement>(null);
+    const leftPanelRef = useRef<HTMLDivElement>(null);
+    const rightPanelRef = useRef<HTMLDivElement>(null);
+    const resultsContentRef = useRef<HTMLDivElement>(null);
+    const [hasGenerated, setHasGenerated] = useState(false);
+
+
+    // Initial load animations
     useEffect(() => {
-        // Reset slide index for the active tab if it's not set
+        const tl = gsap.timeline({ delay: 0.2 });
+        tl.from(leftPanelRef.current, { x: -50, opacity: 0, duration: 0.8, ease: 'power3.out' })
+          .from(rightPanelRef.current, { x: 50, opacity: 0, duration: 0.8, ease: 'power3.out' }, "-=0.6")
+          .from(gsap.utils.toArray('.form-section'), { y: 30, opacity: 0, stagger: 0.1, duration: 0.6, ease: 'power3.out' }, '-=0.5');
+    }, []);
+
+     // Animation for new content appearing
+    useEffect(() => {
+        if (hasGenerated && resultsContentRef.current) {
+            gsap.from(resultsContentRef.current, {
+                opacity: 0,
+                y: 20,
+                duration: 0.7,
+                ease: 'power3.out'
+            });
+        }
+    }, [hasGenerated]);
+
+    // Animate tab change
+    useEffect(() => {
+        if(resultsContentRef.current && hasGenerated){
+             gsap.from(resultsContentRef.current, {
+                opacity: 0,
+                duration: 0.5,
+                ease: 'power2.inOut'
+            });
+        }
+    }, [activeTab]);
+
+
+    useEffect(() => {
         if (activeTab && activeCarouselSlides[activeTab] === undefined) {
             setActiveCarouselSlides(prev => ({...prev, [activeTab]: 0}));
         }
@@ -102,9 +143,11 @@ const Generator: React.FC<GeneratorProps> = ({ initialPrompt = '' }) => {
     const handleGenerate = useCallback(async () => {
         if (!prompt.trim() || selectedPlatforms.length === 0) {
             setError('Please provide a prompt and select at least one platform.');
+            gsap.fromTo('.error-message', { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.5 });
             return;
         }
         setIsLoading(true);
+        setHasGenerated(true);
         setError(null);
         
         const placeholderPosts: GeneratedPost[] = selectedPlatforms.map(platform => ({
@@ -117,7 +160,7 @@ const Generator: React.FC<GeneratorProps> = ({ initialPrompt = '' }) => {
         if (selectedPlatforms.length > 0) {
           setActiveTab(selectedPlatforms[0]);
         }
-        setActiveCarouselSlides({}); // Reset carousel states
+        setActiveCarouselSlides({});
 
         let finalPrompt = prompt;
         if (selectedTemplate !== 'none') {
@@ -162,10 +205,29 @@ const Generator: React.FC<GeneratorProps> = ({ initialPrompt = '' }) => {
         );
     };
 
-    const copyToClipboard = (text: string, id: string) => {
+    const copyToClipboard = (text: string, id: string, event: React.MouseEvent<HTMLButtonElement>) => {
         navigator.clipboard.writeText(text);
         setCopiedStates(prev => ({ ...prev, [id]: true }));
-        setTimeout(() => setCopiedStates(prev => ({ ...prev, [id]: false })), 2000);
+
+        const button = event.currentTarget;
+        const icon = button.querySelector('.copy-icon');
+        const check = button.querySelector('.check-icon');
+        const textEl = button.querySelector('span');
+
+        const tl = gsap.timeline();
+        tl.to(icon, { scale: 0, duration: 0.2, ease: 'power2.in' })
+          .to(check, { scale: 1, duration: 0.3, ease: 'elastic.out(1, 0.5)' }, "-=0.1")
+          .to(textEl, { y: -2, opacity: 0, duration: 0.2, onComplete: () => textEl.textContent = 'Copied!' }, 0)
+          .to(textEl, { y: 0, opacity: 1, duration: 0.2 });
+
+        setTimeout(() => {
+             const reverseTl = gsap.timeline();
+             reverseTl.to(check, { scale: 0, duration: 0.2, ease: 'power2.in' })
+                .to(icon, { scale: 1, duration: 0.3, ease: 'elastic.out(1, 0.5)' }, "-=0.1")
+                .to(textEl, { y: -2, opacity: 0, duration: 0.2, onComplete: () => textEl.textContent = 'Copy Caption' }, 0)
+                .to(textEl, { y: 0, opacity: 1, duration: 0.2 });
+            setCopiedStates(prev => ({ ...prev, [id]: false }))
+        }, 2000);
     };
 
     const downloadImage = (base64Image: string, filename: string) => {
@@ -180,7 +242,6 @@ const Generator: React.FC<GeneratorProps> = ({ initialPrompt = '' }) => {
     const currentPost = generatedPosts.find(p => p.platform === activeTab);
     const isCurrentPostContentLoading = currentPost ? currentPost.caption.includes('Generating') || currentPost.images.includes('loading') : false;
 
-    // Carousel specific logic
     const isCarousel = currentPost && postType === PostType.Carousel && currentPost.images.length > 0;
     const currentSlideIndex = (activeTab && activeCarouselSlides[activeTab]) || 0;
     
@@ -189,14 +250,20 @@ const Generator: React.FC<GeneratorProps> = ({ initialPrompt = '' }) => {
         : [];
     const currentSlideCaption = slideCaptions[currentSlideIndex] || '';
 
+    useEffect(() => {
+        if (captionRef.current) {
+            gsap.fromTo(captionRef.current, { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.5, ease: 'power3.out' });
+        }
+    }, [currentSlideIndex, currentSlideCaption]);
+
     return (
-        <div className="min-h-screen bg-gray-900 text-white p-4 sm:p-6 lg:p-8 flex flex-col lg:flex-row gap-8">
+        <div ref={mainContainerRef} className="min-h-screen bg-gray-900 text-white p-4 sm:p-6 lg:p-8 flex flex-col lg:flex-row gap-8">
             {/* Left Panel: Inputs */}
-            <div className="lg:w-1/3 xl:w-1/4 space-y-6">
+            <div ref={leftPanelRef} className="lg:w-1/3 xl:w-1/4 space-y-6">
                 <h1 className="text-3xl font-bold text-blue-400">Create Social Posts</h1>
                 <p className="text-gray-400">Fill in the details below to generate posts with AI.</p>
                 
-                <div className="space-y-2">
+                <div className="space-y-2 form-section">
                     <label htmlFor="prompt" className="font-semibold text-gray-300">Your Idea / Prompt</label>
                     <textarea 
                         id="prompt"
@@ -207,7 +274,7 @@ const Generator: React.FC<GeneratorProps> = ({ initialPrompt = '' }) => {
                     />
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-2 form-section">
                     <label htmlFor="template" className="font-semibold text-gray-300">Content Template</label>
                     <div className="relative">
                         <select
@@ -232,11 +299,11 @@ const Generator: React.FC<GeneratorProps> = ({ initialPrompt = '' }) => {
                     </div>
                 </div>
                 
-                <div className="space-y-3">
+                <div className="space-y-3 form-section">
                     <label className="font-semibold text-gray-300">Target Platforms</label>
                     <div className="flex gap-2">
                         {platformOptions.map(p => (
-                            <button key={p} onClick={() => handlePlatformToggle(p)} className={`flex-1 py-2 px-3 rounded-lg text-sm transition-all duration-200 flex items-center justify-center gap-2 ${selectedPlatforms.includes(p) ? 'bg-blue-600 text-white shadow-lg' : 'bg-gray-700 hover:bg-gray-600'}`}>
+                            <button key={p} onClick={() => handlePlatformToggle(p)} className={`flex-1 py-2 px-3 rounded-lg text-sm transition-all duration-300 ease-out flex items-center justify-center gap-2 transform hover:-translate-y-1 ${selectedPlatforms.includes(p) ? 'bg-blue-600 text-white shadow-lg' : 'bg-gray-700 hover:bg-gray-600'}`}>
                                 <Icon icon={p.toLowerCase() as 'linkedin' | 'instagram' | 'x'} className="w-5 h-5"/>
                                 {p}
                             </button>
@@ -244,7 +311,7 @@ const Generator: React.FC<GeneratorProps> = ({ initialPrompt = '' }) => {
                     </div>
                 </div>
 
-                <div className="space-y-3">
+                <div className="space-y-3 form-section">
                     <label className="font-semibold text-gray-300">Post Format</label>
                     <div className="flex bg-gray-800 rounded-lg p-1">
                         {postTypeOptions.map(t => (
@@ -269,9 +336,9 @@ const Generator: React.FC<GeneratorProps> = ({ initialPrompt = '' }) => {
                     )}
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-2 form-section">
                     <label className="font-semibold text-gray-300">Context (Optional)</label>
-                    <label htmlFor="file-upload" className="relative cursor-pointer bg-gray-800 border-2 border-dashed border-gray-600 rounded-lg p-6 w-full flex flex-col items-center justify-center hover:border-blue-500 transition">
+                    <label htmlFor="file-upload" className="relative cursor-pointer bg-gray-800 border-2 border-dashed border-gray-600 rounded-lg p-6 w-full flex flex-col items-center justify-center hover:border-blue-500 transition transform hover:-translate-y-1 duration-300 ease-out">
                         <Icon icon="upload" className="w-8 h-8 text-gray-500 mb-2"/>
                         <span className="text-sm text-gray-400">{contextImage ? contextImage.name : "Upload an image"}</span>
                         <span className="text-xs text-gray-500">{contextImage ? 'Click to replace' : 'Provides visual context for AI'}</span>
@@ -279,30 +346,30 @@ const Generator: React.FC<GeneratorProps> = ({ initialPrompt = '' }) => {
                     <input id="file-upload" type="file" className="hidden" accept="image/*" onChange={handleFileChange} />
                 </div>
                 
-                <button onClick={handleGenerate} disabled={isLoading} className="w-full bg-gradient-to-r from-blue-500 to-indigo-600 text-white font-bold py-3 px-4 rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity shadow-lg">
+                <button onClick={handleGenerate} disabled={isLoading} className="w-full bg-gradient-to-r from-blue-500 to-indigo-600 text-white font-bold py-3 px-4 rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg transform hover:scale-105">
                     {isLoading ? 'Generating...' : 'Generate Posts'}
                 </button>
-                {error && <p className="text-red-400 text-sm mt-2">{error}</p>}
+                {error && <p className="text-red-400 text-sm mt-2 error-message">{error}</p>}
             </div>
 
             {/* Right Panel: Results */}
-            <div className="lg:w-2/3 xl:w-3/4 bg-gray-800/50 rounded-lg p-6 flex items-center justify-center">
-                {generatedPosts.length > 0 ? (
+            <div ref={rightPanelRef} className="lg:w-2/3 xl:w-3/4 bg-gray-800/50 rounded-lg p-6 flex items-center justify-center">
+                {hasGenerated ? (
                     <div className="w-full h-full flex flex-col">
                         <div className="flex border-b border-gray-700">
                             {generatedPosts.map(post => (
                                 <button
                                     key={post.platform}
                                     onClick={() => setActiveTab(post.platform)}
-                                    className={`py-3 px-6 font-semibold text-sm flex items-center gap-2 transition ${activeTab === post.platform ? 'text-blue-400 border-b-2 border-blue-400' : 'text-gray-400 hover:text-white'}`}
+                                    className={`py-3 px-6 font-semibold text-sm flex items-center gap-2 transition transform hover:-translate-y-0.5 ${activeTab === post.platform ? 'text-blue-400 border-b-2 border-blue-400' : 'text-gray-400 hover:text-white'}`}
                                 >
                                     <Icon icon={post.platform.toLowerCase() as 'linkedin' | 'instagram' | 'x'} className="w-5 h-5"/>
-                                    {post.platform}
+                                    <span>{post.platform}</span>
                                 </button>
                             ))}
                         </div>
                         {currentPost && (
-                            <div className="flex-grow grid grid-cols-1 md:grid-cols-2 gap-6 py-6 overflow-y-auto" style={{maxHeight: 'calc(100vh - 150px)'}}>
+                            <div ref={resultsContentRef} className="flex-grow grid grid-cols-1 md:grid-cols-2 gap-6 py-6 overflow-y-auto" style={{maxHeight: 'calc(100vh - 150px)'}}>
                                 {/* Image Viewer */}
                                 <div className="space-y-4">
                                     <h3 className="font-semibold text-lg text-gray-200">Generated Image{currentPost.images.length !== 1 ? 's' : ''}</h3>
@@ -318,7 +385,7 @@ const Generator: React.FC<GeneratorProps> = ({ initialPrompt = '' }) => {
                                                     <>
                                                         <img src={`data:image/jpeg;base64,${currentPost.images[currentSlideIndex]}`} alt={`Generated for ${currentPost.platform} - Slide ${currentSlideIndex + 1}`} className="rounded-lg object-cover w-full h-full"/>
                                                         <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity rounded-lg">
-                                                            <button onClick={() => downloadImage(currentPost.images[currentSlideIndex], `${currentPost.platform}_post_slide_${currentSlideIndex + 1}.jpg`)} className="bg-white/20 backdrop-blur-sm text-white p-3 rounded-full hover:bg-white/30">
+                                                            <button onClick={() => downloadImage(currentPost.images[currentSlideIndex], `${currentPost.platform}_post_slide_${currentSlideIndex + 1}.jpg`)} className="bg-white/20 backdrop-blur-sm text-white p-3 rounded-full hover:bg-white/30 transform transition-transform hover:scale-110">
                                                                 <Icon icon="download" className="w-6 h-6"/>
                                                             </button>
                                                         </div>
@@ -330,15 +397,15 @@ const Generator: React.FC<GeneratorProps> = ({ initialPrompt = '' }) => {
                                                         <button
                                                             onClick={() => handleCarouselNav(currentPost.platform, 'prev')}
                                                             disabled={currentSlideIndex === 0}
-                                                            className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/40 text-white p-2 rounded-full hover:bg-black/60 disabled:opacity-30 disabled:cursor-not-allowed transition"
+                                                            className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/40 text-white p-2 rounded-full hover:bg-black/60 disabled:opacity-30 disabled:cursor-not-allowed transition transform hover:scale-110"
                                                             aria-label="Previous image"
                                                         >
-                                                          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                                                          <svg xmlns="http://www.w.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
                                                         </button>
                                                          <button
                                                             onClick={() => handleCarouselNav(currentPost.platform, 'next')}
                                                             disabled={currentSlideIndex >= currentPost.images.length - 1 || currentPost.images[currentSlideIndex + 1] === 'loading'}
-                                                            className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/40 text-white p-2 rounded-full hover:bg-black/60 disabled:opacity-30 disabled:cursor-not-allowed transition"
+                                                            className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/40 text-white p-2 rounded-full hover:bg-black/60 disabled:opacity-30 disabled:cursor-not-allowed transition transform hover:scale-110"
                                                             aria-label="Next image"
                                                         >
                                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
@@ -347,13 +414,13 @@ const Generator: React.FC<GeneratorProps> = ({ initialPrompt = '' }) => {
                                                 )}
                                             </div>
                                             <div className="mt-4 text-center">
-                                                <p className="text-sm text-gray-300 min-h-[40px] px-4">{currentSlideCaption}</p>
+                                                <p ref={captionRef} className="text-sm text-gray-300 min-h-[40px] px-4">{currentSlideCaption}</p>
                                                 <div className="flex justify-center items-center gap-2 mt-2">
                                                     {currentPost.images.map((_, index) => (
                                                         <button
                                                             key={index}
                                                             onClick={() => setActiveCarouselSlides(prev => ({ ...prev, [currentPost.platform]: index }))}
-                                                            className={`w-2 h-2 rounded-full transition ${index === currentSlideIndex ? 'bg-blue-500' : 'bg-gray-600 hover:bg-gray-500'}`}
+                                                            className={`w-2 h-2 rounded-full transition transform hover:scale-125 ${index === currentSlideIndex ? 'bg-blue-500 scale-125' : 'bg-gray-600 hover:bg-gray-500'}`}
                                                             aria-label={`Go to slide ${index + 1}`}
                                                         />
                                                     ))}
@@ -372,7 +439,7 @@ const Generator: React.FC<GeneratorProps> = ({ initialPrompt = '' }) => {
                                                         <>
                                                             <img src={`data:image/jpeg;base64,${img}`} alt={`Generated for ${currentPost.platform} - ${index + 1}`} className="rounded-lg object-cover w-full h-full"/>
                                                             <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity rounded-lg">
-                                                                <button onClick={() => downloadImage(img, `${currentPost.platform}_post_${index + 1}.jpg`)} className="bg-white/20 backdrop-blur-sm text-white p-3 rounded-full hover:bg-white/30">
+                                                                <button onClick={() => downloadImage(img, `${currentPost.platform}_post_${index + 1}.jpg`)} className="bg-white/20 backdrop-blur-sm text-white p-3 rounded-full hover:bg-white/30 transform transition-transform hover:scale-110">
                                                                     <Icon icon="download" className="w-6 h-6"/>
                                                                 </button>
                                                             </div>
@@ -399,12 +466,13 @@ const Generator: React.FC<GeneratorProps> = ({ initialPrompt = '' }) => {
                                     />
                                     <div className="flex items-center gap-4">
                                         <button 
-                                            onClick={() => copyToClipboard(currentPost.caption, `${currentPost.platform}_caption`)} 
+                                            onClick={(e) => copyToClipboard(currentPost.caption, `${currentPost.platform}_caption`, e)} 
                                             disabled={isCurrentPostContentLoading}
-                                            className="flex items-center gap-2 bg-gray-700 py-2 px-4 rounded-lg hover:bg-gray-600 transition text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                                            className="flex items-center gap-2 bg-gray-700 py-2 px-4 rounded-lg hover:bg-gray-600 transition text-sm disabled:opacity-50 disabled:cursor-not-allowed transform hover:-translate-y-0.5"
                                         >
-                                            {copiedStates[`${currentPost.platform}_caption`] ? <Icon icon="check" className="w-5 h-5 text-green-400"/> : <Icon icon="copy" className="w-5 h-5"/>}
-                                            {copiedStates[`${currentPost.platform}_caption`] ? 'Copied!' : 'Copy Caption'}
+                                            <Icon icon="copy" className="w-5 h-5 copy-icon" style={{ transform: 'scale(1)' }}/>
+                                            <Icon icon="check" className="w-5 h-5 text-green-400 absolute check-icon" style={{ transform: 'scale(0)' }}/>
+                                            <span className="ml-1">Copy Caption</span>
                                         </button>
                                         <div className="text-gray-400 text-sm">|</div>
                                         <div className="flex-grow text-blue-400 text-sm font-mono overflow-x-auto whitespace-nowrap">

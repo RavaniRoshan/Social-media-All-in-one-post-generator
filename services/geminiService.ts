@@ -2,13 +2,7 @@
 import { GoogleGenAI, Type, GenerateContentResponse, Part } from "@google/genai";
 import { GenerationRequest, GeneratedPost, Platform } from '../types';
 
-if (!process.env.API_KEY) {
-    // This is a placeholder for a real-world scenario.
-    // In a real app, this key would be securely managed.
-    console.warn("API_KEY environment variable not set. Using a placeholder. This will fail.");
-    process.env.API_KEY = "YOUR_API_KEY_HERE";
-}
-
+// FIX: Adhering to guidelines by removing API key fallback. The API key must be provided via environment variables.
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 const getAspectRatioForPlatform = (platform: Platform): '1:1' | '16:9' | '3:4' => {
