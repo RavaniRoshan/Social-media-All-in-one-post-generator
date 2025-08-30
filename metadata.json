@@ -1,0 +1,5 @@
+{
+  "name": "Social Post AI Generator",
+  "description": "An AI-powered web application that generates tailored social media posts for LinkedIn, Instagram, and X (Twitter). Users can input ideas, and the app uses the Gemini API to create compelling captions and accompanying images, optimized for each platform.",
+  "requestFramePermissions": []
+}
